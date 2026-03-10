@@ -71,8 +71,15 @@ export default function Dashboard() {
   };
 
   const toggleStatus = async (mapping: ProxyMapping) => {
-    await invoke("toggle_proxy_mapping", { from: mapping.from });
-    loadMappings();
+    // await invoke("toggle_proxy_mapping", { from: mapping.from });
+    // loadMappings();
+    setMappings((prev) =>
+      prev.map((m) =>
+        m.from === mapping.from
+          ? { ...m, status: m.status === "inactive" ? "active" : "inactive" }
+          : m
+      )
+    );
   }
 
   const handleInfo = (mapping: ProxyMapping) => {
