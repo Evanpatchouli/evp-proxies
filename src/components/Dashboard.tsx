@@ -15,6 +15,10 @@ import {
   InputAdornment,
   Tooltip,
   Fade,
+  Card,
+  CardHeader,
+  CardContent,
+  CardActions,
 } from "@mui/material";
 import {
   DeleteOutline as DeleteIcon,
@@ -23,6 +27,9 @@ import {
   ArrowForwardRounded as ArrowIcon,
   SettingsInputComponentRounded as ApiIcon,
   LanguageRounded as WebIcon,
+  NavigationOutlined,
+  PlayCircleOutlined,
+  StopCircleOutlined,
 } from "@mui/icons-material";
 
 interface ProxyMapping {
@@ -30,6 +37,7 @@ interface ProxyMapping {
   target: string;
   change_origin?: boolean;
   rewrite?: string;
+  status: "active" | "inactive";
 }
 
 export default function Dashboard() {
@@ -60,6 +68,15 @@ export default function Dashboard() {
     setTarget("");
     setRewrite("");
     loadMappings();
+  };
+
+  const toggleStatus = async (mapping: ProxyMapping) => {
+    await invoke("toggle_proxy_mapping", { from: mapping.from });
+    loadMappings();
+  }
+
+  const handleInfo = (mapping: ProxyMapping) => {
+    alert(`Source: ${mapping.from}\nTarget: ${mapping.target}\nChange Origin: ${mapping.change_origin}\nRewrite: ${mapping.rewrite}`);
   };
 
   const handleDelete = async (from: string) => {
@@ -97,7 +114,7 @@ export default function Dashboard() {
                 mr: 2,
                 fontWeight: 600,
                 bgcolor: "primary.light",
-                color: "primary.dark",
+                color: "white"
               }}
             />
           </Toolbar>
@@ -138,7 +155,7 @@ export default function Dashboard() {
             }}
           >
             <Grid container spacing={2} alignItems="center">
-              <Grid item xs={12} sm={4}>
+              <Grid>
                 <TextField
                   label="源路径 (Source)"
                   value={from}
@@ -155,7 +172,7 @@ export default function Dashboard() {
                   }}
                 />
               </Grid>
-              <Grid item xs={12} sm={4}>
+              <Grid>
                 <TextField
                   label="目标地址 (Target)"
                   value={target}
@@ -172,7 +189,7 @@ export default function Dashboard() {
                   }}
                 />
               </Grid>
-              <Grid item xs={12} sm={2}>
+              <Grid>
                 <TextField
                   label="重写 (Rewrite)"
                   value={rewrite}
@@ -182,7 +199,7 @@ export default function Dashboard() {
                   fullWidth
                 />
               </Grid>
-              <Grid item xs={12} sm={2}>
+              <Grid>
                 <Button
                   variant="contained"
                   onClick={handleAdd}
@@ -206,12 +223,14 @@ export default function Dashboard() {
       </Box>
 
       {/* 下方区域：列表区域（可滚动） */}
-      <Box sx={{ flexGrow: 1, overflowY: "auto", py: 3, px: 2 }}>
-        <Container maxWidth="lg">
+      <Box sx={{ flexGrow: 1, overflowY: "auto", py: 3, px: 2, width: "100%", boxSizing: "border-box" }}>
+        <Container maxWidth="xl">
           <Typography
             variant="subtitle2"
             color="text.secondary"
-            sx={{ mb: 2, fontWeight: 600 }}
+            textAlign="center"
+            fontWeight={600}
+            mb={2}
           >
             实时映射列表
           </Typography>
@@ -231,14 +250,13 @@ export default function Dashboard() {
               </Typography>
             </Paper>
           ) : (
-            <Grid container spacing={2}>
+            <Grid container spacing={2} justifyContent="center">
               {mappings.map((mapping) => (
-                <Grid item xs={12} sm={6} md={4} key={mapping.from}>
+                <Grid key={mapping.from}>
                   <Fade in>
-                    <Paper
-                      elevation={0}
+                    <Card
+                      variant="outlined"
                       sx={{
-                        p: 2,
                         borderRadius: 3,
                         border: "1px solid",
                         borderColor: "divider",
@@ -248,28 +266,102 @@ export default function Dashboard() {
                           borderColor: "primary.main",
                           boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
                         },
+                        width: 300,
+                        aspectRatio: "16 / 9",
+                        display: "flex",
+                        flexDirection: "column",
                       }}
                     >
-                      <Box
+                      <CardHeader
+                        title={
+                          <Typography
+                            variant="subtitle2"
+                            sx={{
+                              fontWeight: 600,
+                              color: mapping.status === "inactive" ? "text.disabled" : "text.primary",
+                              maxWidth: "180px",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap"
+                            }}>
+                            {mapping.from}
+                          </Typography>
+                        }
+                        action={
+                          <>
+                            <Tooltip title={mapping.status === "inactive" ? "启用" : "停用"}>
+                              <IconButton
+                                size="small"
+                                onClick={() => toggleStatus(mapping)}
+                                sx={{
+                                  color: mapping.status === "inactive" ? "success.light" : "error.light",
+                                  "&:hover": {
+                                    color: mapping.status === "inactive" ? "success.main" : "error.main",
+                                  },
+                                }}
+                              >
+                                {
+                                  mapping.status === "inactive" ?
+                                    <PlayCircleOutlined fontSize="small" />
+                                    :
+                                    <StopCircleOutlined fontSize="small" />
+                                }
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="详情">
+                              <IconButton
+                                size="small"
+                                onClick={() => handleInfo(mapping)}
+                                sx={{
+                                  color: "primary.light",
+                                  "&:hover": {
+                                    color: "primary.main",
+                                  },
+                                }}
+                              >
+                                <NavigationOutlined fontSize="small" sx={{ rotate: "45deg" }} />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="删除">
+                              <IconButton
+                                size="small"
+                                onClick={() => handleDelete(mapping.from)}
+                                sx={{
+                                  color: "error.light",
+                                  "&:hover": {
+                                    color: "error.main",
+                                  },
+                                }}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </>
+                        }
+                      />
+
+                      <CardContent
                         sx={{
-                          mb: 1.5,
+                          flex: 1,
                           display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "flex-start",
+                          alignItems: "start",
+                          gap: 2,
+                          pt: 0
                         }}
                       >
-                        <Box sx={{ overflow: "hidden" }}>
+                        <Box  >
                           <Typography
                             variant="caption"
                             color="text.secondary"
                             sx={{ display: "block" }}
                           >
-                            Source
+                            源路径
                           </Typography>
                           <Typography
                             variant="body2"
                             sx={{
                               fontWeight: 700,
+                              color: "success.main",
                               fontFamily: "Monospace",
                               // nowrap
                               whiteSpace: "nowrap",
@@ -278,95 +370,64 @@ export default function Dashboard() {
                             {mapping.from}
                           </Typography>
                         </Box>
-                        <Tooltip title="删除">
-                          <IconButton
-                            size="small"
-                            onClick={() => handleDelete(mapping.from)}
+
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 1,
+                            mt: 1.5, // 1.5rem
+                          }}
+                        >
+                          <ArrowIcon
                             sx={{
-                              color: "error.light",
-                              "&:hover": {
-                                color: "error.main",
-                                bgcolor: "#fff1f0",
-                              },
+                              color: "text.disabled",
+                              fontSize: 16,
+                              transform: "rotate(0deg)",
                             }}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
+                          />
+                        </Box>
 
-                      <Box
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 1,
-                          mb: 1.5,
-                        }}
-                      >
-                        <ArrowIcon
-                          sx={{
-                            color: "text.disabled",
-                            fontSize: 16,
-                            transform: "rotate(90deg)",
-                          }}
-                        />
-                      </Box>
-
-                      <Box sx={{ mb: 2 }}>
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ display: "block" }}
-                        >
-                          Target
-                        </Typography>
-                        <Typography
-                          variant="body2"
-                          sx={{
-                            fontWeight: 500,
-                            color: "primary.main",
-                            fontFamily: "Monospace",
-                            wordBreak: "break-all",
-                          }}
-                        >
-                          {mapping.target}
-                        </Typography>
-                      </Box>
-
-                      {mapping.rewrite && (
-                        <Box sx={{ mb: 2 }}>
+                        <Box sx={{ overflow: "hidden" }}>
                           <Typography
                             variant="caption"
                             color="text.secondary"
                             sx={{ display: "block" }}
                           >
-                            Rewrite
+                            目的地
                           </Typography>
                           <Typography
                             variant="body2"
                             sx={{
                               fontWeight: 500,
-                              color: "warning.main",
+                              color: "primary.main",
                               fontFamily: "Monospace",
+                              wordBreak: "break-all",
                             }}
                           >
-                            {mapping.rewrite}
+                            {mapping.target}
                           </Typography>
                         </Box>
-                      )}
+                      </CardContent>
 
-                      <Chip
-                        label="CORS Enabled"
-                        size="small"
-                        variant="outlined"
-                        sx={{
-                          height: 20,
-                          fontSize: "0.65rem",
-                          color: "success.main",
-                          borderColor: "success.light",
-                        }}
-                      />
-                    </Paper>
+                      <CardActions>
+                        {
+                          mapping.change_origin && (
+                            <Chip
+                              label="CORS 已启用" // CORS ENABLED
+                              size="small"
+                              variant="outlined"
+                              sx={{
+                                height: 20,
+                                fontSize: "0.65rem",
+                                color: "success.main",
+                                borderColor: "success.light",
+                              }}
+                            />
+                          )
+                        }
+                      </CardActions>
+                    </Card>
                   </Fade>
                 </Grid>
               ))}
