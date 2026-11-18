@@ -895,7 +895,7 @@ dependencies = [
 
 [[package]]
 name = "evp-proxies"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "chrono",
  "http-body-util",

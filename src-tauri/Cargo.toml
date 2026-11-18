@@ -1,6 +1,6 @@
 [package]
 name = "evp-proxies"
-version = "1.0.1"
+version = "1.0.2"
 description = "EvpProxies HTTP proxy mapping manager"
 authors = ["Evanpatchouli"]
 edition = "2021"
