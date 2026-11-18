@@ -1,6 +1,7 @@
-import { useState, useEffect, useId } from "react";
+import { useState, useEffect, useId, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
+  Alert,
   Box,
   TextField,
   Button,
@@ -19,6 +20,11 @@ import {
   CardHeader,
   CardContent,
   CardActions,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Snackbar,
 } from "@mui/material";
 import {
   DeleteOutline as DeleteIcon,
@@ -46,21 +52,29 @@ export default function Dashboard() {
   const [from, setFrom] = useState("");
   const [target, setTarget] = useState("");
   const [rewrite, setRewrite] = useState("");
+  const [updatingStatuses, setUpdatingStatuses] = useState<Set<string>>(() => new Set());
+  const [statusUpdateFailed, setStatusUpdateFailed] = useState(false);
+  const [details, setDetails] = useState<{ from: string; open: boolean } | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
     from: string;
     anchor: HTMLButtonElement;
     status: "ready" | "deleting" | "failed" | "dismissed" | "deleted";
   } | null>(null);
+  const mappingsRequestId = useRef(0);
+  const detailsTitleId = useId();
   const deleteConfirmationId = useId();
   const isDeleting = deleteConfirmation?.status === "deleting";
   const isDeleteConfirmationOpen = deleteConfirmation !== null &&
     deleteConfirmation.status !== "dismissed" && deleteConfirmation.status !== "deleted";
   const openDeleteFrom = isDeleteConfirmationOpen ? deleteConfirmation?.from : undefined;
+  const activeMappingCount = mappings.filter((mapping) => mapping.status === "active").length;
+  const detailMapping = mappings.find((mapping) => mapping.from === details?.from);
 
   const loadMappings = async () => {
+    const requestId = ++mappingsRequestId.current;
     try {
       const data = await invoke<ProxyMapping[]>("get_proxy_mappings");
-      setMappings(data);
+      if (requestId === mappingsRequestId.current) setMappings(data);
     } catch (e) {
       console.error("Failed to load mappings", e);
     }
@@ -82,19 +96,30 @@ export default function Dashboard() {
   };
 
   const toggleStatus = async (mapping: ProxyMapping) => {
-    // await invoke("toggle_proxy_mapping", { from: mapping.from });
-    // loadMappings();
-    setMappings((prev) =>
-      prev.map((m) =>
-        m.from === mapping.from
-          ? { ...m, status: m.status === "inactive" ? "active" : "inactive" }
-          : m
-      )
-    );
-  }
+    if (updatingStatuses.has(mapping.from)) return;
 
-  const handleInfo = (mapping: ProxyMapping) => {
-    alert(`Source: ${mapping.from}\nTarget: ${mapping.target}\nChange Origin: ${mapping.change_origin}\nRewrite: ${mapping.rewrite}`);
+    const status = mapping.status === "active" ? "inactive" : "active";
+    setUpdatingStatuses((current) => new Set(current).add(mapping.from));
+    try {
+      await invoke("set_proxy_mapping_status", { from: mapping.from, status });
+      setMappings((current) => current.map((item) => (
+        item.from === mapping.from ? { ...item, status } : item
+      )));
+      await loadMappings();
+    } catch (error) {
+      console.error("Failed to update mapping status", error);
+      setStatusUpdateFailed(true);
+    } finally {
+      setUpdatingStatuses((current) => {
+        const next = new Set(current);
+        next.delete(mapping.from);
+        return next;
+      });
+    }
+  };
+
+  const closeDetails = () => {
+    setDetails((current) => current && { ...current, open: false });
   };
 
   const toggleDeleteConfirmation = (from: string, anchor: HTMLButtonElement) => {
@@ -154,7 +179,7 @@ export default function Dashboard() {
               Evp<span style={{ color: "#1976d2" }}>Proxies</span>
             </Typography>
             <Chip
-              label={`${mappings.length} 条映射已启用`}
+              label={`${activeMappingCount} 条映射已启用`}
               size="small"
               sx={{
                 mr: 2,
@@ -338,6 +363,7 @@ export default function Dashboard() {
                             <Tooltip title={mapping.status === "inactive" ? "启用" : "停用"}>
                               <IconButton
                                 size="small"
+                                aria-disabled={updatingStatuses.has(mapping.from)}
                                 onClick={() => toggleStatus(mapping)}
                                 sx={{
                                   color: mapping.status === "inactive" ? "success.light" : "error.light",
@@ -357,7 +383,8 @@ export default function Dashboard() {
                             <Tooltip title="详情">
                               <IconButton
                                 size="small"
-                                onClick={() => handleInfo(mapping)}
+                                aria-haspopup="dialog"
+                                onClick={() => setDetails({ from: mapping.from, open: true })}
                                 sx={{
                                   color: "primary.light",
                                   "&:hover": {
@@ -485,6 +512,43 @@ export default function Dashboard() {
           )}
         </Container>
       </Box>
+
+      <Dialog
+        open={Boolean(details?.open && detailMapping)}
+        onClose={closeDetails}
+        aria-labelledby={detailsTitleId}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle id={detailsTitleId}>映射详情</DialogTitle>
+        <DialogContent dividers>
+          {detailMapping && (
+            <Box component="dl" sx={{ m: 0, display: "grid", gap: 1.5 }}>
+              {[
+                { label: "源路径", value: detailMapping.from },
+                { label: "目标地址", value: detailMapping.target },
+                { label: "更改 Origin", value: detailMapping.change_origin ? "是" : "否" },
+                { label: "路径重写", value: detailMapping.rewrite ?? "未设置" },
+                { label: "状态", value: detailMapping.status === "active" ? "已启用" : "已停用" },
+              ].map(({ label, value }) => (
+                <Box key={label} sx={{ display: "grid", gridTemplateColumns: "6rem minmax(0, 1fr)", gap: 1 }}>
+                  <Typography component="dt" variant="body2" color="text.secondary">{label}</Typography>
+                  <Typography component="dd" variant="body2" sx={{ m: 0, overflowWrap: "anywhere" }}>
+                    {value}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeDetails} autoFocus>关闭</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar open={statusUpdateFailed} autoHideDuration={4000} onClose={() => setStatusUpdateFailed(false)}>
+        <Alert severity="error" onClose={() => setStatusUpdateFailed(false)}>更新映射状态失败，请重试。</Alert>
+      </Snackbar>
 
       <Popconfirm
         id={deleteConfirmationId}

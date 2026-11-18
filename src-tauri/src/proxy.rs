@@ -1,4 +1,5 @@
 use crate::plugins::tauri_plugin_share::SharePluginState;
+use crate::MappingStatus;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response};
@@ -27,6 +28,8 @@ struct ProxyConfig {
     ws: Option<bool>,
     /// 是否改变 websocket origin，默认为 `false`，设置为 `true` 避免跨域
     rewrite_ws_origin: Option<bool>,
+    #[serde(default)]
+    status: MappingStatus,
 }
 
 fn read_listen_port_state(state: &SharePluginState) -> u16 {
@@ -50,6 +53,10 @@ fn read_proxy_config(state: &SharePluginState, path: &str) -> Option<(String, Pr
         if let Some(from) = key.strip_prefix("[#from]") {
             if path.starts_with(from) {
                 if let Ok(config) = serde_json::from_str::<ProxyConfig>(value) {
+                    if config.status == MappingStatus::Inactive {
+                        continue;
+                    }
+
                     // 保留最长匹配
                     if matched.is_none() || from.len() > matched.as_ref().unwrap().0.len() {
                         matched = Some((from.to_string(), config));
@@ -147,5 +154,44 @@ pub async fn start_proxy(
                 eprintln!("Error serving connection: {:?}", err);
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plugins::tauri_plugin_share::ShareState;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    #[test]
+    fn matches_only_active_mappings_using_the_longest_prefix() {
+        let state = SharePluginState(Mutex::new(ShareState {
+            mapping: HashMap::from([
+                (
+                    "[#from]/api".into(),
+                    r#"{"from":"/api","target":"http://localhost:8080"}"#.into(),
+                ),
+                (
+                    "[#from]/api/v1".into(),
+                    r#"{"from":"/api/v1","target":"http://localhost:8081","status":"active"}"#.into(),
+                ),
+                (
+                    "[#from]/api/v1/private".into(),
+                    r#"{"from":"/api/v1/private","target":"http://localhost:8082","status":"inactive"}"#.into(),
+                ),
+                (
+                    "[#from]/inactive".into(),
+                    r#"{"from":"/inactive","target":"http://localhost:8083","status":"inactive"}"#.into(),
+                ),
+            ]),
+        }));
+
+        assert_eq!(read_proxy_config(&state, "/api/v2").unwrap().0, "/api");
+        assert_eq!(
+            read_proxy_config(&state, "/api/v1/private").unwrap().0,
+            "/api/v1"
+        );
+        assert!(read_proxy_config(&state, "/inactive").is_none());
     }
 }
