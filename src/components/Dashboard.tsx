@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useId } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Box,
@@ -31,6 +31,7 @@ import {
   PlayCircleOutlined,
   StopCircleOutlined,
 } from "@mui/icons-material";
+import Popconfirm from "./Popconfirm";
 
 interface ProxyMapping {
   from: string;
@@ -45,6 +46,16 @@ export default function Dashboard() {
   const [from, setFrom] = useState("");
   const [target, setTarget] = useState("");
   const [rewrite, setRewrite] = useState("");
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    from: string;
+    anchor: HTMLButtonElement;
+    status: "ready" | "deleting" | "failed" | "dismissed" | "deleted";
+  } | null>(null);
+  const deleteConfirmationId = useId();
+  const isDeleting = deleteConfirmation?.status === "deleting";
+  const isDeleteConfirmationOpen = deleteConfirmation !== null &&
+    deleteConfirmation.status !== "dismissed" && deleteConfirmation.status !== "deleted";
+  const openDeleteFrom = isDeleteConfirmationOpen ? deleteConfirmation?.from : undefined;
 
   const loadMappings = async () => {
     try {
@@ -86,9 +97,37 @@ export default function Dashboard() {
     alert(`Source: ${mapping.from}\nTarget: ${mapping.target}\nChange Origin: ${mapping.change_origin}\nRewrite: ${mapping.rewrite}`);
   };
 
-  const handleDelete = async (from: string) => {
-    await invoke("remove_proxy_mapping", { from });
-    loadMappings();
+  const toggleDeleteConfirmation = (from: string, anchor: HTMLButtonElement) => {
+    if (isDeleting || deleteConfirmation?.status === "deleted") return;
+
+    if (isDeleteConfirmationOpen && deleteConfirmation?.anchor === anchor) {
+      dismissDeleteConfirmation();
+      return;
+    }
+    setDeleteConfirmation({ from, anchor, status: "ready" });
+  };
+
+  const dismissDeleteConfirmation = () => {
+    if (!deleteConfirmation) return;
+    setDeleteConfirmation({ ...deleteConfirmation, status: "dismissed" });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirmation || !isDeleteConfirmationOpen || isDeleting) return;
+
+    setDeleteConfirmation({ ...deleteConfirmation, status: "deleting" });
+    try {
+      await invoke("remove_proxy_mapping", { from: deleteConfirmation.from });
+      setDeleteConfirmation({ ...deleteConfirmation, status: "deleted" });
+    } catch (error) {
+      console.error("Failed to delete mapping", error);
+      setDeleteConfirmation({ ...deleteConfirmation, status: "failed" });
+    }
+  };
+
+  const finishDeleteConfirmation = () => {
+    setDeleteConfirmation(null);
+    if (deleteConfirmation?.status === "deleted") void loadMappings();
   };
 
   return (
@@ -329,10 +368,14 @@ export default function Dashboard() {
                                 <NavigationOutlined fontSize="small" sx={{ rotate: "45deg" }} />
                               </IconButton>
                             </Tooltip>
-                            <Tooltip title="删除">
+                            <Tooltip title={openDeleteFrom === mapping.from ? "" : "删除"}>
                               <IconButton
                                 size="small"
-                                onClick={() => handleDelete(mapping.from)}
+                                aria-label="删除"
+                                aria-haspopup="dialog"
+                                aria-expanded={openDeleteFrom === mapping.from}
+                                aria-controls={openDeleteFrom === mapping.from ? deleteConfirmationId : undefined}
+                                onClick={(event) => toggleDeleteConfirmation(mapping.from, event.currentTarget)}
                                 sx={{
                                   color: "error.light",
                                   "&:hover": {
@@ -442,6 +485,21 @@ export default function Dashboard() {
           )}
         </Container>
       </Box>
+
+      <Popconfirm
+        id={deleteConfirmationId}
+        open={isDeleteConfirmationOpen}
+        anchorEl={deleteConfirmation?.anchor ?? null}
+        title="删除这条映射规则？"
+        description={`源路径「${deleteConfirmation?.from ?? ""}」`}
+        confirmLabel="确认删除"
+        confirmColor="error"
+        pending={isDeleting}
+        error={deleteConfirmation?.status === "failed" ? "删除失败，请重试。" : undefined}
+        onCancel={dismissDeleteConfirmation}
+        onConfirm={confirmDelete}
+        onExited={finishDeleteConfirmation}
+      />
     </>
   );
 }
