@@ -121,7 +121,7 @@ export default function Dashboard() {
                 mr: 2,
                 fontWeight: 600,
                 bgcolor: "primary.light",
-                color: "white"
+                color: "common.white",
               }}
             />
           </Toolbar>
