@@ -895,18 +895,21 @@ dependencies = [
 
 [[package]]
 name = "evp-proxies"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "http-body-util",
  "hyper",
  "hyper-util",
  "reqwest",
+ "semver",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
+ "tempfile",
  "tokio",
 ]
 

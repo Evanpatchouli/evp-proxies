@@ -2,8 +2,9 @@
 
 mod plugins;
 mod proxy;
+mod updates;
 use plugins::tauri_plugin_share::{self, SharePluginState};
-use tauri::{Manager, State};
+use tauri::State;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -87,12 +88,18 @@ fn get_proxy_mappings(state: State<'_, SharePluginState>) -> Result<Vec<ProxyMap
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .manage(updates::DownloadState::default())
         .plugin(tauri_plugin_share::init())
         .invoke_handler(tauri::generate_handler![
             add_proxy_mapping,
             remove_proxy_mapping,
             set_proxy_mapping_status,
-            get_proxy_mappings
+            get_proxy_mappings,
+            updates::check_update,
+            updates::release_history,
+            updates::install_update,
+            updates::cancel_download
         ])
         .setup(|_app| {
             let app_handle = _app.handle().clone();

@@ -38,6 +38,7 @@ import {
   StopCircleOutlined,
 } from "@mui/icons-material";
 import Popconfirm from "./Popconfirm";
+import TitleBarMenu from "./TitleBarMenu";
 
 interface ProxyMapping {
   from: string;
@@ -188,6 +189,7 @@ export default function Dashboard() {
                 color: "common.white",
               }}
             />
+            <TitleBarMenu />
           </Toolbar>
         </Container>
       </AppBar>
