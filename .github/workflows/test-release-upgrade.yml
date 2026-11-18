@@ -1,0 +1,48 @@
+name: Test Windows release upgrade
+
+on:
+  workflow_dispatch:
+    inputs:
+      from_tag:
+        description: Installed release to upgrade from
+        required: true
+        default: v1.0.0
+
+permissions:
+  contents: read
+
+jobs:
+  upgrade:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare the previous installer and WebView2 automation
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FROM_TAG: ${{ inputs.from_tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:FROM_TAG -notmatch '^v\d+\.\d+\.\d+$') { throw 'Invalid release tag' }
+          $name = 'EvpProxies.Setup.' + $env:FROM_TAG.Substring(1) + '.exe'
+          $asset = (gh release view $env:FROM_TAG --json assets | ConvertFrom-Json).assets | Where-Object name -eq $name
+          gh release download $env:FROM_TAG --pattern $name --dir $env:RUNNER_TEMP
+          $setup = Join-Path $env:RUNNER_TEMP $name
+          if ('sha256:' + (Get-FileHash $setup).Hash.ToLower() -ne $asset.digest) { throw 'Installer digest mismatch' }
+          $install = Start-Process -FilePath $setup -ArgumentList '/S' -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Install failed ($($install.ExitCode))" }
+          # The NSIS restart may inherit Explorer's environment instead of the runner's.
+          $key = 'HKCU:\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
+          New-Item $key -Force | Out-Null
+          New-ItemProperty $key -Name 'evp-proxies.exe' -Value '--remote-debugging-port=19347' -Force | Out-Null
+          npm install --prefix "$env:RUNNER_TEMP/upgrade-driver" playwright-core@1.56.1 --ignore-scripts --no-audit --no-fund
+      - name: Update through the installed app and verify rules after restart
+        shell: pwsh
+        env:
+          FROM_TAG: ${{ inputs.from_tag }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: --remote-debugging-port=19347
+        run: |
+          $env:NODE_PATH = "$env:RUNNER_TEMP/upgrade-driver/node_modules"
+          node scripts/test-release-upgrade.cjs

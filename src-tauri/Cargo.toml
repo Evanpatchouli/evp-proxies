@@ -1,6 +1,6 @@
 [package]
 name = "evp-proxies"
-version = "1.0.0"
+version = "1.0.1"
 description = "EvpProxies HTTP proxy mapping manager"
 authors = ["Evanpatchouli"]
 edition = "2021"
@@ -31,4 +31,5 @@ semver = "1"
 sha2 = "0.10"
 tempfile = "3"
 chrono = "0.4.42"
+rusqlite = { version = "0.37", features = ["bundled"] }
 

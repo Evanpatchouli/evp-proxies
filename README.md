@@ -6,7 +6,11 @@ EvpProxies 是用 Tauri、React 和 MUI 构建的 Windows 桌面 HTTP 代理映�
 
 1. 填写源路径与目标 HTTP 地址，例如 `/api` 和 `http://localhost:8080`。需要替换路径前缀时填写「重写」。
 2. 点击「添加」后规则立即启用。请求默认发往 `http://localhost:9420`，代理按最长的已启用前缀转发。未匹配的路径返回 404。
-3. 在卡片上可启用、停用、查看详情或删除规则。顶栏显示启用数量。映射保存在当前应用进程中，关闭或更新重启后需要重新添加。
+3. 在卡片上可启用、停用、查看详情或删除规则。顶栏显示启用数量。
+
+从 v1.0.1 起，添加、覆盖、启停和删除规则都会立即写入当前 Windows 用户的 `%LOCALAPPDATA%\com.evanpatchouli.evp-proxies\proxy-mappings.sqlite3`。应用重启或原地更新后自动使用已保存的规则及其状态。要备份规则，可在关闭应用后复制该数据库。
+
+**从 v1.0.0 首次升级**：请先记下源路径、目标、重写和启停状态。旧版只在内存中保存规则，首次升级后需要重新添加一次。
 
 代理默认监听 `0.0.0.0:9420`，可访问该端口的设备也能使用已启用的映射。
 
@@ -42,13 +46,15 @@ npm run tauri dev
 1. 更新 `package.json` 的 `version`、`releaseDate` 和 `src-tauri/Cargo.toml` 的版本。Tauri 直接从 `package.json` 读取应用版本。同步 npm 与 Cargo 锁文件。
 2. 在 `resources/changelog.json` 顶部添加对应 tag、发布日期与 Markdown 说明。构建脚本会核对这些信息，并生成同一份 Release 正文。
 3. 执行 `npm ci` 和 `npm run release`（别名 `npm run dist:win`）。脚本构建 Windows x64 NSIS 安装包，输出到 `release/<version>/`。
-4. 提交并推送版本改动及对应 tag，然后创建 GitHub 正式 Release。以 v1.0.0 为例，在已验证并暂存变更后执行：
+4. 提交并推送版本改动及对应 tag，然后创建 GitHub 正式 Release。以 v1.0.1 为例，在已验证并暂存变更后执行：
 
 ```powershell
-git commit -m "chore(release): 发布 v1.0.0"
-git tag v1.0.0
-git push --atomic origin master v1.0.0
-gh release create v1.0.0 release/1.0.0/EvpProxies.Setup.1.0.0.exe release/1.0.0/SHA256SUMS.txt --verify-tag --title "EvpProxies v1.0.0" --notes-file release/1.0.0/notes.md
+git commit -m "chore(release): 发布 v1.0.1"
+git tag v1.0.1
+git push --atomic origin master v1.0.1
+gh release create v1.0.1 release/1.0.1/EvpProxies.Setup.1.0.1.exe release/1.0.1/SHA256SUMS.txt --verify-tag --title "EvpProxies v1.0.1" --notes-file release/1.0.1/notes.md
 ```
 
 发布后核对 Release 的 tag、安装包名称和 GitHub 资产的 `digest` 与本地 `SHA256SUMS.txt`。保留 `EvpProxies.Setup.<version>.exe` 的命名，应用内更新依赖此约定。当前安装包未进行 Windows 代码签名，首次运行时系统可能显示未知发布者。
+
+可在 GitHub Actions 中手动运行 **Test Windows release upgrade**，选择对应发布提交并填写旧版 tag。在独立 Windows 环境中，它会从旧版的「立即更新」开始，检查自动重启、版本号、规则恢复和实际 HTTP 转发。

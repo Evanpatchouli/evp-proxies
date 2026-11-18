@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod mapping_store;
 mod plugins;
 mod proxy;
 mod updates;
@@ -29,23 +30,17 @@ fn add_proxy_mapping(
     state: State<'_, SharePluginState>,
     mapping: ProxyMapping,
 ) -> Result<(), String> {
-    let key = format!("[#from]{}", mapping.from);
+    let key = format!("{}{}", mapping_store::RULE_PREFIX, mapping.from);
     let value = serde_json::to_string(&mapping).map_err(|e| e.to_string())?;
 
-    let mut share_state = state.0.lock().unwrap();
-    share_state.mapping.insert(key, value);
+    state.with(|db| db.put(&key, &value, false))?;
 
     Ok(())
 }
 
 #[tauri::command]
 fn remove_proxy_mapping(state: State<'_, SharePluginState>, from: String) -> Result<(), String> {
-    let key = format!("[#from]{}", from);
-
-    let mut share_state = state.0.lock().unwrap();
-    share_state.mapping.remove(&key);
-
-    Ok(())
+    state.with(|db| db.remove(&format!("{}{from}", mapping_store::RULE_PREFIX)))
 }
 
 #[tauri::command]
@@ -54,35 +49,16 @@ fn set_proxy_mapping_status(
     from: String,
     status: MappingStatus,
 ) -> Result<(), String> {
-    let key = format!("[#from]{}", from);
-    let mut share_state = state.0.lock().unwrap();
-    let value = share_state.mapping.get_mut(&key).ok_or("映射不存在")?;
-    let mut mapping: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(value).map_err(|e| e.to_string())?;
-
-    mapping.insert(
-        "status".into(),
-        serde_json::to_value(status).map_err(|e| e.to_string())?,
-    );
-    *value = serde_json::to_string(&mapping).map_err(|e| e.to_string())?;
-
-    Ok(())
+    if state.with(|db| db.set_status(&from, status))? {
+        Ok(())
+    } else {
+        Err("映射不存在".into())
+    }
 }
 
 #[tauri::command]
 fn get_proxy_mappings(state: State<'_, SharePluginState>) -> Result<Vec<ProxyMapping>, String> {
-    let share_state = state.0.lock().unwrap();
-    let mut mappings = Vec::new();
-
-    for (key, value) in share_state.mapping.iter() {
-        if key.starts_with("[#from]") {
-            if let Ok(mapping) = serde_json::from_str::<ProxyMapping>(value) {
-                mappings.push(mapping);
-            }
-        }
-    }
-
-    Ok(mappings)
+    state.with(|db| db.rules())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

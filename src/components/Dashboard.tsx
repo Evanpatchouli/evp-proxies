@@ -54,7 +54,7 @@ export default function Dashboard() {
   const [target, setTarget] = useState("");
   const [rewrite, setRewrite] = useState("");
   const [updatingStatuses, setUpdatingStatuses] = useState<Set<string>>(() => new Set());
-  const [statusUpdateFailed, setStatusUpdateFailed] = useState(false);
+  const [mappingError, setMappingError] = useState("");
   const [details, setDetails] = useState<{ from: string; open: boolean } | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
     from: string;
@@ -78,6 +78,7 @@ export default function Dashboard() {
       if (requestId === mappingsRequestId.current) setMappings(data);
     } catch (e) {
       console.error("Failed to load mappings", e);
+      if (requestId === mappingsRequestId.current) setMappingError(`读取映射失败：${String(e)}`);
     }
   };
 
@@ -87,9 +88,14 @@ export default function Dashboard() {
 
   const handleAdd = async () => {
     if (!from || !target) return;
-    await invoke("add_proxy_mapping", {
-      mapping: { from, target, change_origin: true, rewrite: rewrite || undefined },
-    });
+    try {
+      await invoke("add_proxy_mapping", {
+        mapping: { from, target, change_origin: true, rewrite: rewrite || undefined },
+      });
+    } catch (e) {
+      setMappingError(`保存映射失败：${String(e)}`);
+      return;
+    }
     setFrom("");
     setTarget("");
     setRewrite("");
@@ -109,7 +115,7 @@ export default function Dashboard() {
       await loadMappings();
     } catch (error) {
       console.error("Failed to update mapping status", error);
-      setStatusUpdateFailed(true);
+      setMappingError(`更新映射状态失败：${String(error)}`);
     } finally {
       setUpdatingStatuses((current) => {
         const next = new Set(current);
@@ -548,8 +554,8 @@ export default function Dashboard() {
         </DialogActions>
       </Dialog>
 
-      <Snackbar open={statusUpdateFailed} autoHideDuration={4000} onClose={() => setStatusUpdateFailed(false)}>
-        <Alert severity="error" onClose={() => setStatusUpdateFailed(false)}>更新映射状态失败，请重试。</Alert>
+      <Snackbar open={Boolean(mappingError)} autoHideDuration={6000} onClose={() => setMappingError("")}>
+        <Alert severity="error" onClose={() => setMappingError("")}>{mappingError}</Alert>
       </Snackbar>
 
       <Popconfirm

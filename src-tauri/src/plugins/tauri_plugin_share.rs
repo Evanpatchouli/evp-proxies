@@ -1,28 +1,24 @@
-use std::collections::HashMap;
-use std::sync::Mutex;
-
+use crate::mapping_store::{MappingStore, DATABASE};
+use std::{collections::HashMap, sync::Mutex};
 use tauri::{
     plugin::{Builder, TauriPlugin},
     AppHandle, Emitter, Manager, Runtime, State,
 };
 
-pub struct ShareState {
-    pub mapping: HashMap<String, String>,
-}
+pub struct SharePluginState(Mutex<Result<MappingStore, String>>);
 
-impl ShareState {
-    fn new() -> Self {
-        Self {
-            mapping: HashMap::new(),
-        }
+impl SharePluginState {
+    pub fn with<T>(
+        &self,
+        op: impl FnOnce(&mut MappingStore) -> rusqlite::Result<T>,
+    ) -> Result<T, String> {
+        let mut guard = self.0.lock().map_err(|e| e.to_string())?;
+        let db = guard.as_mut().map_err(|e| e.clone())?;
+        op(db).map_err(|e| format!("本地映射数据库：{e}"))
     }
 }
 
-#[allow(private_interfaces)]
-pub struct SharePluginState(pub Mutex<ShareState>);
-
 #[tauri::command]
-// this will be accessible with `invoke('plugin:awesome|do_something')`.
 fn register<R: Runtime>(
     _app: AppHandle<R>,
     _state: State<'_, SharePluginState>,
@@ -30,105 +26,70 @@ fn register<R: Runtime>(
     val: String,
     if_not_exists: bool,
     broadcast: bool,
-) {
-    let mut state = _state.0.lock().unwrap();
-    if if_not_exists && state.mapping.contains_key(&key) {
-        return;
+) -> Result<(), String> {
+    let changed = _state.with(|db| db.put(&key, &val, if_not_exists))?;
+    if changed && broadcast {
+        _app.emit(&format!("plugin:share:update:{key}"), val)
+            .map_err(|e| e.to_string())?;
     }
-    state.mapping.insert(key.clone(), val.clone());
-    if broadcast {
-        _app.emit(&format!("plugin:share:update:{}", key), val)
-            .unwrap();
-    }
+    Ok(())
 }
 
 #[tauri::command]
-// this will be accessible with `invoke('plugin:awesome|do_something')`.
-fn request<R: Runtime>(
-    _app: AppHandle<R>,
-    _state: State<'_, SharePluginState>,
-    key: String,
-) -> Option<String> {
-    // you can request a share variable
-    let state = _state.0.lock().unwrap();
-    return state.mapping.get(&key).cloned();
-}
-
-#[tauri::command]
-// this will be accessible with `invoke('plugin:awesome|do_something')`.
 fn update<R: Runtime>(
     _app: AppHandle<R>,
     _state: State<'_, SharePluginState>,
     key: String,
     val: String,
-) {
-    // you can update a share variable
-    let mut state = _state.0.lock().unwrap();
-    state.mapping.insert(key.clone(), val.clone());
-    _app.emit(&format!("plugin:share:update:{}", key), val)
-        .unwrap();
+) -> Result<(), String> {
+    register(_app, _state, key, val, false, true)
 }
 
 #[tauri::command]
-fn has(_state: State<'_, SharePluginState>, key: String) -> bool {
-    // you can check if a share variable exists
-    let state = _state.0.lock().unwrap();
-    return state.mapping.contains_key(&key);
+fn request(_state: State<'_, SharePluginState>, key: String) -> Result<Option<String>, String> {
+    _state.with(|db| db.get(&key))
 }
 
 #[tauri::command]
-fn keys(_state: State<'_, SharePluginState>) -> Vec<String> {
-    // you can get all the keys of the share variables
-    let state = _state.0.lock().unwrap();
-    return state.mapping.keys().cloned().collect();
+fn has(_state: State<'_, SharePluginState>, key: String) -> Result<bool, String> {
+    Ok(request(_state, key)?.is_some())
 }
 
 #[tauri::command]
-fn clear(_state: State<'_, SharePluginState>) -> bool {
-    // you can remove a share variable
-    let mut state = _state.0.lock().unwrap();
-    state.mapping.clear();
-    return true;
+fn entries(_state: State<'_, SharePluginState>) -> Result<Vec<(String, String)>, String> {
+    _state.with(|db| db.entries())
 }
 
 #[tauri::command]
-fn remove(_state: State<'_, SharePluginState>, key: String) -> bool {
-    // you can remove a share variable
-    let mut state = _state.0.lock().unwrap();
-    state.mapping.remove(&key);
-    return true;
+fn keys(_state: State<'_, SharePluginState>) -> Result<Vec<String>, String> {
+    Ok(entries(_state)?.into_iter().map(|(k, _)| k).collect())
 }
 
 #[tauri::command]
-fn values(_state: State<'_, SharePluginState>) -> Vec<String> {
-    // you can get all the values of the share variables
-    let state = _state.0.lock().unwrap();
-    return state.mapping.values().cloned().collect();
+fn values(_state: State<'_, SharePluginState>) -> Result<Vec<String>, String> {
+    Ok(entries(_state)?.into_iter().map(|(_, v)| v).collect())
 }
 
 #[tauri::command]
-fn size(_state: State<'_, SharePluginState>) -> usize {
-    // you can get the count of the share variables
-    let state = _state.0.lock().unwrap();
-    return state.mapping.len();
+fn mapping(_state: State<'_, SharePluginState>) -> Result<HashMap<String, String>, String> {
+    Ok(entries(_state)?.into_iter().collect())
 }
 
 #[tauri::command]
-fn mapping(_state: State<'_, SharePluginState>) -> HashMap<String, String> {
-    // you can get all the share variables
-    let state = _state.0.lock().unwrap();
-    return state.mapping.clone();
+fn size(_state: State<'_, SharePluginState>) -> Result<usize, String> {
+    Ok(entries(_state)?.len())
 }
 
 #[tauri::command]
-fn entries(_state: State<'_, SharePluginState>) -> Vec<(String, String)> {
-    // you can get all the share variables
-    let state = _state.0.lock().unwrap();
-    return state
-        .mapping
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
+fn clear(_state: State<'_, SharePluginState>) -> Result<bool, String> {
+    _state.with(MappingStore::clear)?;
+    Ok(true)
+}
+
+#[tauri::command]
+fn remove(_state: State<'_, SharePluginState>, key: String) -> Result<bool, String> {
+    _state.with(|db| db.remove(&key))?;
+    Ok(true)
 }
 
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
@@ -136,9 +97,14 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
         .invoke_handler(tauri::generate_handler![
             register, request, update, has, keys, clear, remove, values, size, mapping, entries
         ])
-        .setup(|app_handle, _api| {
-            // setup plugin specific state here
-            app_handle.manage(SharePluginState(Mutex::new(ShareState::new())));
+        .setup(|app, _api| {
+            let directory = app.path().app_local_data_dir()?;
+            let path = directory.join(DATABASE);
+            let store = std::fs::create_dir_all(directory)
+                .map_err(|e| e.to_string())
+                .and_then(|_| MappingStore::open(&path).map_err(|e| e.to_string()))
+                .map_err(|e| format!("无法打开 {}：{e}", path.display()));
+            app.manage(SharePluginState(Mutex::new(store)));
             Ok(())
         })
         .build()
